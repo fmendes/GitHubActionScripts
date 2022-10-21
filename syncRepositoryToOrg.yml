@@ -1,0 +1,75 @@
+name: Detect changes in the org and sync into the repository
+
+# When the workflow will run
+on:
+ schedule:
+   # Runs at 12:00 UTC every day.
+   - cron: '0 12 * * *'
+  
+ # Allows you to run this workflow manually from the Actions tab
+ workflow_dispatch:
+   inputs:
+     # this will be referred to as ${{ github.event.inputs.commit_text }}
+     commit_text:
+       description: 'Commit text to use'    
+       required: true
+       default: 'New Manual Sync commit'
+
+jobs:
+ sync_job:
+   runs-on: ubuntu-latest
+   steps:
+  
+     - name: Install Salesforce CLI
+       run: |
+         wget https://developer.salesforce.com/media/salesforce-cli/sfdx/channels/stable/sfdx-linux-x64.tar.xz
+         mkdir ~/sfdx
+         tar xJf sfdx-linux-x64.tar.xz -C ~/sfdx --strip-components 1
+         echo "$HOME/sfdx/bin" >> $GITHUB_PATH
+         ~/sfdx/bin/sfdx version
+        
+     - name: 'Checkout source code'
+       uses: actions/checkout@main
+      
+     - name: 'Create file to authenticate to the org via SFDX'
+       run: echo ${{ secrets.ORG_SFDX_URL }} > DEV-LOGIN.txt
+      
+     - name: 'Authenticate to the org using SFDX'
+       run: sfdx force:auth:sfdxurl:store -f DEV-LOGIN.txt -d -a backupfiles
+      
+     - name: 'Create project with manifest, Copy package.xml, Navigate to the project folder, Download metadata using SFDX'
+       run: |
+         rm DEV-LOGIN.txt
+         if test -d "./backupfiles/force-app"; then
+           echo force-app folder exists
+         else
+           sfdx force:project:create --projectname backupfiles --manifest
+         fi
+        
+         if test -f "./backupfiles/sfdx-project.json"; then
+           echo sfdx-project.json file exists
+         else
+           cp ./sfdx-project.json ./backupfiles/sfdx-project.json
+         fi
+        
+         if test -f "./backupfiles/manifest/package.xml"; then
+           echo package.xml file exists
+         else
+           cp ./package.xml ./backupfiles/manifest
+         fi
+        
+         cd ./backupfiles
+         sfdx force:source:retrieve -u backupfiles -x manifest/package.xml
+     - name: save repository owner email
+       run: |
+        echo "owner_email=$(git log -n 1 --pretty=format:%ae )" >> $GITHUB_ENV
+     - name: commit and push
+       run: |
+         # Stage the files, commit and push
+         git init
+         git config user.email "${{ env.owner_email }}"
+         git config user.name "${{ github.repository_owner }}"
+         git add .
+         git commit -m "${{ github.event.inputs.commit_text }} on ${{ github.event.repository.updated_at }}"
+         # executes git push origin main
+         echo "git-push=$(git push -u origin main)\n" >> $GITHUB_OUTPUT
