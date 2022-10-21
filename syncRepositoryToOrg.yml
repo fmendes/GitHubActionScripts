@@ -9,7 +9,7 @@ on:
  # Allows you to run this workflow manually from the Actions tab
  workflow_dispatch:
    inputs:
-     # this will be referred to as ${{ github.event.inputs.commit_text }}
+     # this will be refered to as ${{ github.event.inputs.commit_text }}
      commit_text:
        description: 'Commit text to use'    
        required: true
@@ -56,20 +56,27 @@ jobs:
            echo package.xml file exists
          else
            cp ./package.xml ./backupfiles/manifest
+           # below causes ERROR running force:source:manifest:create:  This directory does not contain a valid Salesforce DX project.
+           #sfdx force:source:manifest:create -m ApexClass,ApexComponent,ApexPage,ApexTrigger,AuraDefinitionBundle,CustomField,CustomLabels,CustomMetadata,CustomObject,FieldSet,FlexiPage,Flow,FlowCategory,FlowDefinition,LightningComponentBundle,LightningMessageChannel,NamedCredential,PermissionSet,RemoteSiteSetting,StaticResource,ValidationRule,Workflow,WorkflowFieldUpdate,WorkflowRule,WorkflowTask -o ./backupfiles/manifest
          fi
         
          cd ./backupfiles
          sfdx force:source:retrieve -u backupfiles -x manifest/package.xml
-     - name: save repository owner email
+     - name: Save repository owner email
        run: |
         echo "owner_email=$(git log -n 1 --pretty=format:%ae )" >> $GITHUB_ENV
-     - name: commit and push
+       
+     - name: Stage files and check for modified files
+       id: git-check
        run: |
-         # Stage the files, commit and push
          git init
          git config user.email "${{ env.owner_email }}"
          git config user.name "${{ github.repository_owner }}"
          git add .
+         echo "modified=$(if git diff-index --quiet HEAD --; then echo "false"; else echo "true"; fi)" >> $GITHUB_OUTPUT
+         
+     - name: Commit and push if there modified files
+       if: steps.git-check.outputs.modified == 'true'
+       run: |
          git commit -m "${{ github.event.inputs.commit_text }} on ${{ github.event.repository.updated_at }}"
-         # executes git push origin main
          echo "git-push=$(git push -u origin main)\n" >> $GITHUB_OUTPUT
